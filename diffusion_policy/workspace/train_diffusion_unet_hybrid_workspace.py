@@ -135,6 +135,17 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
             self.ema_model.to(device)
         optimizer_to(self.optimizer, device)
 
+        # Multi-GPU support with DataParallel
+        if cfg.training.get('multi_gpu', False) and torch.cuda.device_count() > 1:
+            gpu_ids = cfg.training.get('gpu_ids', None)
+            if gpu_ids is not None:
+                print(f"Using DataParallel with GPUs: {gpu_ids}")
+                self.model = torch.nn.DataParallel(self.model, device_ids=gpu_ids)
+                # Note: EMA model is not wrapped in DataParallel
+            else:
+                print(f"Using DataParallel with all available GPUs: {torch.cuda.device_count()}")
+                self.model = torch.nn.DataParallel(self.model)
+
         # save batch for sampling
         train_sampling_batch = None
 
