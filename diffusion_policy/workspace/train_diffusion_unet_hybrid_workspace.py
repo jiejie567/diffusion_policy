@@ -58,6 +58,12 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         self.global_step = 0
         self.epoch = 0
 
+    def _unwrap_model(self, model):
+        # DataParallel wraps the model; unwrap for custom methods
+        if isinstance(model, torch.nn.DataParallel):
+            return model.module
+        return model
+
     def run(self):
         cfg = copy.deepcopy(self.cfg)
 
@@ -111,9 +117,19 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
         assert isinstance(env_runner, BaseImageRunner)
 
         # configure logging
+        # avoid spawning wandb service (socket not permitted in some environments)
+        os.environ.setdefault("WANDB_DISABLE_SERVICE", "true")
+        os.environ.setdefault("WANDB_START_METHOD", "thread")
+        wandb_settings = wandb.Settings(
+            start_method="thread",
+            _disable_service=True,
+            _service_transport="simple",
+            _service_wait=1
+        )
         wandb_run = wandb.init(
             dir=str(self.output_dir),
             config=OmegaConf.to_container(cfg, resolve=True),
+            settings=wandb_settings,
             **cfg.logging
         )
         wandb.config.update(
@@ -174,7 +190,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             train_sampling_batch = batch
 
                         # compute loss
-                        raw_loss = self.model.compute_loss(batch)
+                        raw_loss = self._unwrap_model(self.model).compute_loss(batch)
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
 
@@ -186,7 +202,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         
                         # update ema
                         if cfg.training.use_ema:
-                            ema.step(self.model)
+                            ema.step(self._unwrap_model(self.model))
 
                         # logging
                         raw_loss_cpu = raw_loss.item()
@@ -216,16 +232,19 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                 step_log['train_loss'] = train_loss
 
                 # ========= eval for this epoch ==========
-                policy = self.model
+                policy = self._unwrap_model(self.model)
                 if cfg.training.use_ema:
                     policy = self.ema_model
                 policy.eval()
 
                 # run rollout
                 if (self.epoch % cfg.training.rollout_every) == 0:
-                    runner_log = env_runner.run(policy)
-                    # log all
-                    step_log.update(runner_log)
+                    try:
+                        runner_log = env_runner.run(policy)
+                        # log all
+                        step_log.update(runner_log)
+                    except NotImplementedError:
+                        print("Env runner not implemented; skipping rollout.")
 
                 # run validation
                 if (self.epoch % cfg.training.val_every) == 0:
@@ -235,7 +254,7 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                                 leave=False, mininterval=cfg.training.tqdm_interval_sec) as tepoch:
                             for batch_idx, batch in enumerate(tepoch):
                                 batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
-                                loss = self.model.compute_loss(batch)
+                                loss = self._unwrap_model(self.model).compute_loss(batch)
                                 val_losses.append(loss)
                                 if (cfg.training.max_val_steps is not None) \
                                     and batch_idx >= (cfg.training.max_val_steps-1):

@@ -51,7 +51,8 @@ class DualArmDepthDataset(BaseImageDataset):
             seed=42,
             val_ratio=0.0,
             max_train_episodes=None,
-            depth_as_3channel=False  # Set to True if you want to replicate to 3 channels for RGB encoders
+            depth_as_3channel=False,  # Set to True if you want to replicate to 3 channels for RGB encoders
+            max_files=None  # Optional: limit number of HDF5 files to load (for quick tests)
             ):
         super().__init__()
 
@@ -61,6 +62,10 @@ class DualArmDepthDataset(BaseImageDataset):
             hdf5_files = sorted(glob.glob(os.path.join(dataset_path, "*.hdf5")), key=natural_sort_key)
         else:
             hdf5_files = sorted(glob.glob(dataset_path), key=natural_sort_key)
+
+        # Limit number of files for quick checks
+        if max_files is not None:
+            hdf5_files = hdf5_files[:max_files]
 
         if len(hdf5_files) == 0:
             raise ValueError(f"No HDF5 files found at {dataset_path}")
