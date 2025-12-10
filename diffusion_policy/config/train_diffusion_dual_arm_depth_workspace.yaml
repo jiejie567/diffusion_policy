@@ -9,10 +9,10 @@ task_name: ${task.name}
 shape_meta: ${task.shape_meta}
 exp_name: "default"
 
-horizon: 16
-n_obs_steps: 2
-n_action_steps: 8
-n_latency_steps: 0
+horizon: 16           # 预测轨迹总长度
+n_obs_steps: 2        # 观测历史帧数（使用最近2帧深度图）
+n_action_steps: 8     # 实际执行的动作步数（从16步中取前8步）
+n_latency_steps: 0    # 0 表示无延迟，真实机器人部署时可能需要设为1-2
 dataset_obs_steps: ${n_obs_steps}
 past_action_visible: False
 keypoint_visible_rate: 1.0
@@ -31,10 +31,10 @@ policy:
 
   noise_scheduler:
     _target_: diffusers.schedulers.scheduling_ddpm.DDPMScheduler
-    num_train_timesteps: 100
-    beta_start: 0.0001
-    beta_end: 0.02
-    beta_schedule: squaredcos_cap_v2
+    num_train_timesteps: 100          # 训练扩散步数
+    beta_start: 0.0001                # 噪声起始值
+    beta_end: 0.02                    # 噪声结束值  
+    beta_schedule: squaredcos_cap_v2  # 噪声调度策略
     variance_type: fixed_small
     clip_sample: True
     prediction_type: epsilon
@@ -57,11 +57,11 @@ policy:
 
 ema:
   _target_: diffusion_policy.model.diffusion.ema_model.EMAModel
-  update_after_step: 0
-  inv_gamma: 1.0
-  power: 0.75
+  update_after_step: 0 # 多少步后开始EMA
+  inv_gamma: 1.0 
+  power: 0.75          # EMA衰减指数
   min_value: 0.0
-  max_value: 0.9999
+  max_value: 0.9999    # EMA最大衰减率
 
 dataloader:
   batch_size: 128  # Doubled for 2 GPUs (64 per GPU)
@@ -79,10 +79,10 @@ val_dataloader:
 
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 1.0e-4
-  betas: [0.95, 0.999]
-  eps: 1.0e-8
-  weight_decay: 1.0e-6
+  lr: 1.0e-4  # Base learning rate
+  betas: [0.95, 0.999]     # Adam的动量参数
+  eps: 1.0e-8      
+  weight_decay: 1.0e-6     # L2正则化
 
 training:
   device: "cuda:0"
@@ -92,9 +92,9 @@ training:
   debug: False
   resume: True
   # optimization
-  lr_scheduler: cosine
-  lr_warmup_steps: 500
-  num_epochs: 3000
+  lr_scheduler: cosine    # 学习率调度器
+  lr_warmup_steps: 500    # 预热步数
+  num_epochs: 3000        # 总训练轮数
   gradient_accumulate_every: 1
   use_ema: True
   # training loop control
