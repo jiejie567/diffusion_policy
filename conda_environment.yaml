@@ -61,5 +61,7 @@ dependencies:
     - pytorchvideo==0.1.5
     # pip package required for jpeg-xl
     - imagecodecs==2022.9.26
+    # pin mujoco to a wheel-backed version to avoid source build requiring MUJOCO_PATH
+    - mujoco==2.3.7
     - r3m @ https://github.com/facebookresearch/r3m/archive/b2334e726887fa0206962d7984c69c5fb09cceab.tar.gz
-    - dm-control==1.0.9
+    - dm-control==1.0.1
