@@ -95,7 +95,6 @@ training:
   gradient_accumulate_every: 1
   use_ema: True
   rollout_every: 99999999
-  checkpoint_every: 50
   val_every: 2
   sample_every: 99999999
   max_train_steps: null
@@ -113,10 +112,10 @@ logging:
 
 checkpoint:
   topk:
-    monitor_key: train_loss
+    monitor_key: val_loss
     mode: min
     k: 5
-    format_str: 'epoch={epoch:04d}-train_loss={train_loss:.3f}.ckpt'
+    format_str: 'epoch={epoch:04d}-val_loss={val_loss:.3f}.ckpt'
   save_last_ckpt: True
   save_last_snapshot: False
 
