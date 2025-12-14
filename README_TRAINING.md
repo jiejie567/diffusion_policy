@@ -1,370 +1,240 @@
-# 双臂深度图训练 - 项目就绪总结
+# 双臂深度图训练指南
 
-## ✅ 所有文件已准备完成
+## 快速开始
 
-### 核心文件
-
-| 文件 | 状态 | 说明 |
-|------|------|------|
-| [dual_arm_depth_dataset.py](diffusion_policy/dataset/dual_arm_depth_dataset.py) | ✅ | 数据集类 |
-| [dual_arm_depth.yaml](diffusion_policy/config/task/dual_arm_depth.yaml) | ✅ | 任务配置 |
-| [train_diffusion_dual_arm_depth_workspace.yaml](diffusion_policy/config/train_diffusion_dual_arm_depth_workspace.yaml) | ✅ | 训练配置（双GPU） |
-| [test_dual_arm_dataset.py](test_dual_arm_dataset.py) | ✅ | 测试脚本 |
-
-### 文档文件
-
-| 文件 | 内容 |
-|------|------|
-| [DUAL_ARM_TRAINING_GUIDE.md](DUAL_ARM_TRAINING_GUIDE.md) | 完整训练指南 |
-| [MULTI_GPU_SETUP.md](MULTI_GPU_SETUP.md) | 双GPU配置说明 |
-| [TRAINING_PROCESS.md](TRAINING_PROCESS.md) | 训练过程详解（本文档） |
-
----
-
-## 📊 训练时会有什么
-
-### 自动记录的指标
-
-#### 1. **每个训练步** (每个batch)
-- `train_loss`: 训练损失
-- `lr`: 学习率
-- `global_step`: 全局步数
-
-#### 2. **验证阶段** (每1个epoch)
-- `val_loss`: 验证集损失
-- 用于监控过拟合
-
-#### 3. **动作采样** (每5个epoch)
-- `train_action_mse_error`: 预测动作MSE
-- 检查模型预测质量
-
-#### 4. **Checkpoint保存** (每50个epoch)
-- 保存最新模型
-- 保存Top-5最佳模型
-
-### ⚠️ 没有环境评估 (Rollout)
-
-**原因**：你提供的是离线数据集，没有仿真环境
-
-**影响**：无影响！对于离线学习，validation loss + action MSE已经足够
-
-**最终评估**：训练完成后在真实机器人上测试
-
----
-
-## 🚀 如何开始训练
-
-### 步骤1: 测试数据加载
+### 1. 数据准备
 
 ```bash
+# 转换HDF5为Memmap格式（推荐）
+python scripts/convert_hdf5_to_mmap.py \
+  --input-dir data/dual_arm_demos \
+  --output-dir data/dual_arm_demos_mmap
+
+# 验证数据
 python test_dual_arm_dataset.py
 ```
 
-**预期输出**：
-```
-================================================================================
-Testing DualArmDepthDataset
-================================================================================
-
-Loading dataset from: data/dual_arm_demos
-Found 100 HDF5 files
-Loading episodes: 100%|████████████| 100/100 [00:15<00:00]
-
-✓ Dataset loaded successfully!
-  Number of episodes: 100
-  Total steps: 60000
-  Dataset length (sequences): 59984
-
-✓ Validation split:
-  Train sequences: 58784
-  Val sequences: 1200
-
-✓ Sample structure:
-  Keys: ['obs', 'action']
-
-✓ Observation shapes:
-  left_hand_depth     : (2, 3, 240, 320)    dtype=torch.float32
-  right_hand_depth    : (2, 3, 240, 320)    dtype=torch.float32
-  head_depth          : (2, 3, 240, 320)    dtype=torch.float32
-
-✓ Action shape:
-  action: (16, 14) dtype=torch.float32
-
-✓ No invalid values (inf/NaN已处理)
-================================================================================
-✓ All tests passed!
-================================================================================
-```
-
-### 步骤2: 开始训练（双GPU）
+### 2. 启动训练
 
 ```bash
-python train.py --config-name=train_diffusion_dual_arm_depth_workspace
+# 第一次训练
+CUDA_VISIBLE_DEVICES=1 python train.py \
+  --config-dir=diffusion_policy/config \
+  --config-name=train_diffusion_dual_arm_depth_mmap_workspace.yaml
 ```
 
-**预期输出**：
+预期输出：
 ```
-Using DataParallel with GPUs: [0, 1]
-Found 100 HDF5 files
-Loading episodes: 100%|████████████| 100/100
-Loaded 100 episodes, 60000 total steps
-
-wandb: Run URL: https://wandb.ai/your-username/diffusion_policy_dual_arm/runs/xxxxx
-
-Training epoch 0: 100%|████████| 469/469 [02:15<00:00, loss=0.234]
-Validation epoch 0: 100%|████████| 10/10 [00:05<00:00]
-
-Epoch 0: train_loss=0.234, val_loss=0.245
-
-Training epoch 1: ...
+Training epoch 0: 100%|████| 475/475 [10:32<00:00, loss=0.0435]
+Training epoch 1: 100%|████| 475/475 [10:28<00:00, loss=0.0298]
 ```
-
-### 步骤3: 监控训练
-
-打开WandB链接，实时查看：
-- Loss曲线（train vs val）
-- 学习率变化
-- 动作MSE
-- GPU使用率
 
 ---
 
-## 📈 训练监控指标
+## 继续训练（关键！）
 
-### 健康的训练曲线
-
-```
-Loss
-  │
-0.5│╲
-   │ ╲           训练loss快速下降
-0.3│  ╲___
-   │      ╲___   验证loss跟随下降
-0.1│          ╲______  两者差距小（没有过拟合）
-   │                 ╲_____
-0.0│                       ╲____
-   └────────────────────────────→ Epoch
-   0   500   1000  1500   2000
-```
-
-### 异常情况
-
-#### 过拟合
-```
-Loss
-  │
-0.5│╲
-   │ ╲           训练loss持续下降
-0.3│  ╲___
-   │      ╲___
-0.1│          ╲  验证loss开始上升 ⚠️
-   │           ╱
-0.2│          ╱  差距变大 ⚠️
-   │         ╱
-   └────────────────→ Epoch
-```
-
-**解决方案**：
-- 增加数据增强
-- 减小模型容量
-- 早停（使用验证loss最低的checkpoint）
-
-#### 欠拟合
-```
-Loss
-  │
-0.5│╲
-   │ ╲____
-   │      ╲____  两者都没怎么下降 ⚠️
-0.3│           ╲____
-   │                ╲____
-0.2│                     ╲____
-   └────────────────────────→ Epoch
-```
-
-**解决方案**：
-- 增加训练时间
-- 增大模型容量
-- 调整学习率
-
----
-
-## 🎯 训练目标
-
-### 收敛标准
-
-建议在以下条件满足时停止训练：
-
-1. ✅ `val_loss < 0.02` 且稳定
-2. ✅ `train_action_mse_error < 0.01`
-3. ✅ `train_loss`和`val_loss`差距 < 20%
-4. ✅ 连续50个epoch无明显改善
-
-### 预期训练时长
-
-根据你的数据规模（100 episodes × 600 frames）：
-
-| GPU配置 | 预计时长（3000 epochs） | 建议 |
-|---------|------------------------|------|
-| RTX 3090 × 2 | 30-40小时 | 先训练500 epochs |
-| RTX 4090 × 2 | 20-30小时 | 先训练500 epochs |
-| A100 × 2 | 15-25小时 | 先训练1000 epochs |
-
-**实用建议**：
-- 先训练500 epochs（~5-8小时）
-- 检查val_loss是否收敛
-- 如果收敛，可以提前停止
-- 如果还在下降，继续训练
-
----
-
-## 💾 Checkpoint管理
-
-### 保存策略
-
-训练会自动保存：
-
-1. **最新checkpoint**: `data/outputs/*/checkpoints/latest.ckpt`
-   - 每50个epoch更新
-   - 用于断点续训
-
-2. **Top-5最佳checkpoint**:
-   - `epoch=0100-train_loss=0.123.ckpt`
-   - `epoch=0200-train_loss=0.098.ckpt`
-   - `epoch=0350-train_loss=0.067.ckpt`
-   - `epoch=0500-train_loss=0.045.ckpt`
-   - `epoch=0750-train_loss=0.023.ckpt` ← **最佳！**
-
-### 断点续训
-
-如果训练中断，重新运行命令会自动从`latest.ckpt`恢复：
-
+**❌ 错误做法**（会重新开始）：
 ```bash
-python train.py --config-name=train_diffusion_dual_arm_depth_workspace
+python train.py --config-name=train_diffusion_dual_arm_depth_mmap_workspace.yaml
+# 这样会创建新的时间戳目录，loss会重新变高！
+```
 
-# 输出：
-# Resuming from checkpoint .../checkpoints/latest.ckpt
-# Resuming from epoch 123
+**✅ 正确做法**（继续从checkpoint）：
+```bash
+# 1. 找到你的run目录
+ls data/outputs/2025.12.12/
+# → 16.00.12_train_diffusion_dual_arm_depth_mmap_dual_arm_depth_mmap
+
+# 2. 在原目录继续训练
+CUDA_VISIBLE_DEVICES=1 python train.py \
+  --config-dir=diffusion_policy/config \
+  --config-name=train_diffusion_dual_arm_depth_mmap_workspace.yaml \
+  hydra.run.dir=data/outputs/2025.12.12/16.00.12_train_diffusion_dual_arm_depth_mmap_dual_arm_depth_mmap \
+  hydra.output_subdir=null
+```
+
+这样会：
+- ✅ 自动加载 `latest.ckpt`
+- ✅ 从 epoch 101 继续（不是 epoch 0）
+- ✅ WandB日志连续
+
+---
+
+## 数据配置（已优化）
+
+当前配置已针对RTX 6000 Ada优化：
+
+```yaml
+dataloader:
+  batch_size: 128
+  num_workers: 3              # 加速数据加载
+  persistent_workers: False  # ⭐ 防止内存累积（关键）
+  prefetch_factor: 2         # ⭐ 适度预加载（关键）
+  pin_memory: True
+```
+
+**为什么这样配置**：
+- `num_workers: 3` → CPU并行加载数据
+- `persistent_workers: False` → worker用完立即释放（防止12-15epoch死机）
+- `prefetch_factor: 2` → 足够预加载，不会堆积数据
+
+**如果出现问题**：
+- 显存爆满 → 降低 `batch_size` (128→96)
+- 系统内存爆炸 → 降低 `prefetch_factor` (2→1)
+- 数据加载慢 → 增加 `batch_size` (128→160)
+
+---
+
+## 训练时长
+
+根据RTX 6000 Ada实际测试：
+
+| 进度 | 耗时 | 累计 | loss变化 |
+|------|------|------|---------|
+| 0-50 epochs | 1.5h | 1.5h | 0.40 → 0.10 |
+| 50-100 epochs | 1.5h | 3h | 0.10 → 0.004 |
+| 100-500 epochs | 15h | ~18h | 微调和收敛 |
+
+**建议**：
+- 先训100 epochs（3小时）检查loss趋势
+- loss应该快速下降（不是持续很高）
+- 如果loss持续高于0.1，检查数据或配置
+
+---
+
+## 模型保存与加载
+
+### Checkpoint自动保存
+
+```
+data/outputs/2025.12.12/16.00.12_.../checkpoints/
+├── latest.ckpt                    # 自动加载用这个
+├── epoch=0050-train_loss=0.006.ckpt
+├── epoch=0100-train_loss=0.004.ckpt  ← 选这个做机器人测试
+└── ...
 ```
 
 ### 加载最佳模型
 
 ```python
-from hydra import compose, initialize
+import torch
 from diffusion_policy.workspace.train_diffusion_unet_hybrid_workspace import TrainDiffusionUnetHybridWorkspace
+from hydra import compose, initialize
 
-# 加载配置
-with initialize(config_path="diffusion_policy/config"):
-    cfg = compose(config_name="train_diffusion_dual_arm_depth_workspace")
+with initialize(config_path="diffusion_policy/config", version_base=None):
+    cfg = compose(config_name="train_diffusion_dual_arm_depth_mmap_workspace")
 
-# 创建workspace
 workspace = TrainDiffusionUnetHybridWorkspace(cfg)
 
-# 加载最佳checkpoint
-workspace.load_checkpoint('data/outputs/.../checkpoints/epoch=0750-train_loss=0.023.ckpt')
+# 加载checkpoint
+ckpt_path = "data/outputs/2025.12.12/.../epoch=0100-train_loss=0.004.ckpt"
+checkpoint = torch.load(ckpt_path)
+workspace.load_state_dict(checkpoint['state_dict'])
 
-# 使用EMA模型（通常效果更好）
+# 使用EMA模型预测（推荐）
 policy = workspace.ema_model
 policy.eval()
 
-# 预测
 with torch.no_grad():
+    obs_dict = {
+        'left_hand_depth': torch.zeros(1, 2, 3, 240, 320).cuda(),
+        'right_hand_depth': torch.zeros(1, 2, 3, 240, 320).cuda(),
+        'head_depth': torch.zeros(1, 2, 3, 240, 320).cuda(),
+    }
     action = policy.predict_action(obs_dict)
 ```
 
 ---
 
-## 🔧 常见调整
+## 后台运行（推荐）
 
-### 如果显存不足 (OOM)
+```bash
+# 启动tmux session
+tmux new-session -d -s train "cd /home/zzx/diffusion_policy && \
+  CUDA_VISIBLE_DEVICES=1 python train.py \
+  --config-dir=diffusion_policy/config \
+  --config-name=train_diffusion_dual_arm_depth_mmap_workspace.yaml"
 
-编辑配置文件，降低batch_size：
+# 查看日志
+tmux attach -t train
 
-```yaml
-dataloader:
-  batch_size: 64   # 从128降到64
-  num_workers: 8
-
-val_dataloader:
-  batch_size: 64
-  num_workers: 8
-```
-
-或使用梯度累积：
-```yaml
-training:
-  gradient_accumulate_every: 2  # 累积2个batch
-dataloader:
-  batch_size: 64  # 实际等效batch_size = 64 × 2 = 128
-```
-
-### 如果训练太慢
-
-1. **检查数据加载**：
-```yaml
-dataloader:
-  num_workers: 16  # 增加到16
-```
-
-2. **减少验证频率**：
-```yaml
-training:
-  val_every: 5      # 从1改到5
-  sample_every: 10  # 从5改到10
-```
-
-### 如果想加快收敛
-
-```yaml
-optimizer:
-  lr: 2.0e-4  # 从1.0e-4提高到2.0e-4
-
-training:
-  lr_warmup_steps: 200  # 从500降到200
-```
-
-⚠️ 注意：过高的学习率可能导致不稳定
-
----
-
-## 📝 训练日志位置
-
-所有训练输出保存在：
-```
-data/outputs/2025.12.09/14.30.15_train_diffusion_dual_arm_depth_dual_arm_depth/
-├── checkpoints/
-│   ├── latest.ckpt
-│   ├── epoch=0050-train_loss=0.123.ckpt
-│   ├── epoch=0100-train_loss=0.098.ckpt
-│   └── ...
-├── logs.json.txt           # JSON格式日志
-└── wandb/                  # WandB日志
+# 查看GPU（另一个终端）
+watch -n 2 nvidia-smi
 ```
 
 ---
 
-## ✅ 准备清单
+## 关键配置文件
 
-在开始训练前，确认：
-
-- [x] 数据集放在 `data/dual_arm_demos/`
-- [x] HDF5文件格式正确（包含actions和observations）
-- [x] 运行`test_dual_arm_dataset.py`通过
-- [x] 有两个GPU可用
-- [x] 足够的磁盘空间（checkpoint会占用~5-10GB）
-- [x] WandB账号登录（或设置`mode: offline`）
+| 文件 | 说明 |
+|------|------|
+| [train_diffusion_dual_arm_depth_mmap_workspace.yaml](diffusion_policy/config/train_diffusion_dual_arm_depth_mmap_workspace.yaml) | 训练配置（核心） |
+| [dual_arm_depth_mmap.yaml](diffusion_policy/config/task/dual_arm_depth_mmap.yaml) | 任务配置 |
+| [dual_arm_depth_mmap_dataset.py](diffusion_policy/dataset/dual_arm_depth_mmap_dataset.py) | Memmap数据集 |
 
 ---
 
-## 🎉 你已经准备好了！
+## 故障排查
 
-所有代码和配置都已优化完成。现在只需要：
+| 问题 | 原因 | 解决方案 |
+|------|------|---------|
+| loss重新变高 | 没从checkpoint恢复 | 用`hydra.run.dir`指定原目录 |
+| 12-15 epoch死机 | `persistent_workers: True` | 改为`False` |
+| 显存爆满 | batch_size太大 | 改为96 |
+| 系统内存爆满 | prefetch_factor太高 | 改为1 |
+| 数据加载慢 | num_workers或batch太小 | 增加num_workers或batch_size |
 
-1. 准备数据
-2. 运行测试脚本
-3. 开始训练
-4. 监控WandB
-5. 加载最佳checkpoint
-6. 部署到机器人测试
+---
 
-祝训练顺利！🚀
+## 为什么用Memmap
+
+| 格式 | 优点 | 缺点 |
+|------|------|------|
+| HDF5全加载 | 速度快 | 大数据集OOM |
+| HDF5懒加载 | 通用 | CPU瓶颈，加载慢 |
+| **Memmap** | **零拷贝，高效** | 需要预转换 |
+
+105个HDF5文件（94GB）转为26.59GB memmap，训练速度1.3秒/批次。
+
+---
+
+## 实用命令速查
+
+```bash
+# 查看最新checkpoint修改时间
+stat data/outputs/2025.12.12/*/checkpoints/latest.ckpt | grep Modify
+
+# 查找所有checkpoint
+find data/outputs -name "*.ckpt" -type f | sort
+
+# 查看当前GPU状态
+nvidia-smi -l 1
+
+# 杀死训练
+pkill -f "train.py"
+
+# 查看WandB日志
+ls data/outputs/2025.12.12/*/wandb/
+```
+
+---
+
+## 检查清单
+
+- [ ] 数据转换完成：`convert_hdf5_to_mmap.py`
+- [ ] 数据验证通过：`test_dual_arm_dataset.py`
+- [ ] GPU可用：`nvidia-smi`
+- [ ] 磁盘空间：≥50GB（数据+checkpoints）
+- [ ] WandB登录：`wandb login`
+
+---
+
+**🎉 准备好了？开始训练！**
+
+```bash
+CUDA_VISIBLE_DEVICES=1 python train.py \
+  --config-dir=diffusion_policy/config \
+  --config-name=train_diffusion_dual_arm_depth_mmap_workspace.yaml
+```
+
+预计 18-20 小时完成 500 epochs。

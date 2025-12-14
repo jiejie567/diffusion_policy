@@ -1,0 +1,31 @@
+name: dual_arm_depth_mmap
+
+shape_meta: &shape_meta
+  obs:
+    left_hand_depth:
+      shape: [3, 240, 320]
+      type: rgb
+    right_hand_depth:
+      shape: [3, 240, 320]
+      type: rgb
+    head_depth:
+      shape: [3, 240, 320]
+      type: rgb
+  action:
+    shape: [14]
+
+dataset_path: &dataset_path data/dual_arm_demos_mmap
+
+env_runner:
+  _target_: diffusion_policy.env_runner.base_image_runner.NoOpImageRunner
+
+dataset:
+  _target_: diffusion_policy.dataset.dual_arm_depth_mmap_dataset.DualArmDepthMmapDataset
+  dataset_path: *dataset_path
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 42
+  val_ratio: 0.02
+  max_train_episodes: null
+  depth_as_3channel: True

@@ -349,3 +349,10 @@ class DiffusionUnetHybridImagePolicy(BaseImagePolicy):
         loss = reduce(loss, 'b ... -> b (...)', 'mean')
         loss = loss.mean()
         return loss
+
+    def forward(self, batch):
+        """
+        Forward method for DataParallel compatibility.
+        Simply calls compute_loss and returns the loss.
+        """
+        return self.compute_loss(batch)

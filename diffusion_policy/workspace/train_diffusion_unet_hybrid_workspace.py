@@ -189,8 +189,11 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         if train_sampling_batch is None:
                             train_sampling_batch = batch
 
-                        # compute loss
-                        raw_loss = self._unwrap_model(self.model).compute_loss(batch)
+                        # compute loss - forward() calls compute_loss() for DataParallel compatibility
+                        raw_loss = self.model(batch)
+                        # For DataParallel, loss is already averaged across GPUs
+                        if isinstance(raw_loss, tuple):
+                            raw_loss = raw_loss[0]
                         loss = raw_loss / cfg.training.gradient_accumulate_every
                         loss.backward()
 

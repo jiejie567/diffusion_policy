@@ -1,10 +1,9 @@
 """
-Test script for dual arm depth dataset
+Test script for dual arm memmap depth dataset
 """
 
 import sys
 import os
-import glob
 import argparse
 
 # Add project root to path
@@ -13,51 +12,55 @@ sys.path.insert(0, project_root)
 
 import numpy as np
 import torch
-import h5py
 
-from diffusion_policy.dataset.dual_arm_depth_dataset import DualArmDepthDataset
+from diffusion_policy.dataset.dual_arm_depth_mmap_dataset import DualArmDepthMmapDataset
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Quick check for DualArmDepthDataset")
-    parser.add_argument("--dataset_path", type=str, default="data/dual_arm_demos",
-                        help="Path or glob to HDF5 files.")
-    parser.add_argument("--max_files", type=int, default=None,
-                        help="Optional: limit number of HDF5 files to load (e.g., 1 for a quick check).")
+    parser = argparse.ArgumentParser(description="Quick check for DualArmDepthMmapDataset")
+    parser.add_argument("--dataset_path", type=str, default="data/dual_arm_demos_mmap",
+                        help="Path to memmap dataset directory.")
     return parser.parse_args()
 
 
 def test_dataset(args):
     print("=" * 80)
-    print("Testing DualArmDepthDataset")
+    print("Testing DualArmDepthMmapDataset")
     print("=" * 80)
 
     # Create dataset
     dataset_path = args.dataset_path
-    max_files = args.max_files
 
     print(f"\nLoading dataset from: {dataset_path}")
 
-    dataset = DualArmDepthDataset(
-        dataset_path=dataset_path,
-        horizon=16,
-        pad_before=1,
-        pad_after=7,
-        seed=42,
-        val_ratio=0.02,
-        depth_as_3channel=True,  # Replicate to 3 channels for ResNet compatibility
-        max_files=max_files
-    )
+    try:
+        dataset = DualArmDepthMmapDataset(
+            dataset_path=dataset_path,
+            horizon=16,
+            pad_before=1,
+            pad_after=7,
+            seed=42,
+            val_ratio=0.02,
+            depth_as_3channel=True
+        )
+    except FileNotFoundError as e:
+        print(f"\n✗ Error: {e}")
+        print(f"\nTo create memmap dataset, run:")
+        print(f"  python scripts/convert_hdf5_to_mmap.py \\")
+        print(f"    --input data/dual_arm_demos \\")
+        print(f"    --output data/dual_arm_demos_mmap")
+        return
 
     print(f"\n✓ Dataset loaded successfully!")
-    print(f"  Number of episodes: {dataset.replay_buffer.n_episodes}")
-    print(f"  Total steps: {dataset.replay_buffer.n_steps}")
-    print(f"  Dataset length (sequences): {len(dataset)}")
+    print(f"  Number of episodes: {dataset.num_episodes}")
+    print(f"  Total steps: {dataset.total_steps}")
+    print(f"  Train samples: {len(dataset.train_indices)}")
+    print(f"  Val samples: {len(dataset.val_indices)}")
 
     # Get validation dataset
     val_dataset = dataset.get_validation_dataset()
     print(f"\n✓ Validation split:")
-    print(f"  Train sequences: {len(dataset)}")
-    print(f"  Val sequences: {len(val_dataset)}")
+    print(f"  Train sequences: {len(dataset.train_indices)}")
+    print(f"  Val sequences: {len(val_dataset.val_indices)}")
 
     # Test a sample
     print(f"\n{'=' * 80}")
@@ -71,7 +74,6 @@ def test_dataset(args):
 
     print(f"\n✓ Observation shapes:")
     for key, value in sample['obs'].items():
-        # convert shape tuple to string before formatting to avoid TypeError
         print(f"  {key:20s}: {tuple(value.shape)} dtype={value.dtype}")
 
     print(f"\n✓ Action shape:")
@@ -102,36 +104,6 @@ def test_dataset(args):
     print(f"    max: {sample['action'].max().item():.4f}")
     print(f"    mean: {sample['action'].mean().item():.4f}")
     print(f"    std: {sample['action'].std().item():.4f}")
-
-    # Check raw data for inf/nan before processing
-    print(f"\n{'=' * 80}")
-    print("Checking raw HDF5 data for invalid values")
-    print("=" * 80)
-
-    # Resolve one sample file for raw check
-    if os.path.isdir(dataset_path):
-        sample_files = sorted(glob.glob(os.path.join(dataset_path, "*.hdf5")))
-    else:
-        sample_files = sorted(glob.glob(dataset_path))
-
-    if len(sample_files) == 0:
-        print("No HDF5 files found for raw check; skipping this section.")
-    else:
-        sample_file = sample_files[0]
-        print(f"\nChecking first file: {sample_file}")
-
-        with h5py.File(sample_file, 'r') as f:
-            for depth_key in ['left_hand_depth', 'right_hand_depth', 'head_depth']:
-                raw_depth = f['observations'][depth_key][:]
-                n_inf = np.isinf(raw_depth).sum()
-                n_nan = np.isnan(raw_depth).sum()
-                n_total = raw_depth.size
-
-                print(f"\n  {depth_key}:")
-                print(f"    Total pixels: {n_total}")
-                print(f"    Inf values: {n_inf} ({100*n_inf/n_total:.2f}%)")
-                print(f"    NaN values: {n_nan} ({100*n_nan/n_total:.2f}%)")
-                print(f"    Valid values: {n_total - n_inf - n_nan} ({100*(n_total-n_inf-n_nan)/n_total:.2f}%)")
 
     # Test normalizer
     print(f"\n{'=' * 80}")
