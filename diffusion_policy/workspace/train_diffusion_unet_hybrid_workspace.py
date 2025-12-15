@@ -266,6 +266,23 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                             val_loss = torch.mean(torch.tensor(val_losses)).item()
                             # log epoch average validation loss
                             step_log['val_loss'] = val_loss
+                            
+                            # checkpoint
+                            if cfg.checkpoint.save_last_ckpt:
+                                self.save_checkpoint()
+                            if cfg.checkpoint.save_last_snapshot:
+                                self.save_snapshot()
+                            
+                            # sanitize metric names
+                            metric_dict = dict()
+                            for key, value in step_log.items():
+                                new_key = key.replace('/', '_')
+                                metric_dict[new_key] = value
+                            
+                            # save topk checkpoint if val_loss improves
+                            topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
+                            if topk_ckpt_path is not None:
+                                self.save_checkpoint(path=topk_ckpt_path)
 
                 # run diffusion sampling on a training batch
                 if (self.epoch % cfg.training.sample_every) == 0:
@@ -286,27 +303,6 @@ class TrainDiffusionUnetHybridWorkspace(BaseWorkspace):
                         del pred_action
                         del mse
                 
-                # checkpoint
-                if (self.epoch % cfg.training.checkpoint_every) == 0:
-                    # checkpointing
-                    if cfg.checkpoint.save_last_ckpt:
-                        self.save_checkpoint()
-                    if cfg.checkpoint.save_last_snapshot:
-                        self.save_snapshot()
-
-                    # sanitize metric names
-                    metric_dict = dict()
-                    for key, value in step_log.items():
-                        new_key = key.replace('/', '_')
-                        metric_dict[new_key] = value
-                    
-                    # We can't copy the last checkpoint here
-                    # since save_checkpoint uses threads.
-                    # therefore at this point the file might have been empty!
-                    topk_ckpt_path = topk_manager.get_ckpt_path(metric_dict)
-
-                    if topk_ckpt_path is not None:
-                        self.save_checkpoint(path=topk_ckpt_path)
                 # ========= eval end for this epoch ==========
                 policy.train()
 
